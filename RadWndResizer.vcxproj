@@ -44,8 +44,15 @@
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="HandlePtr.h" />
+    <ClInclude Include="resource.h" />
     <ClInclude Include="Window.h" />
     <ClInclude Include="Windowxx.h" />
+  </ItemGroup>
+  <ItemGroup>
+    <ResourceCompile Include="RadWndResizer.rc" />
+  </ItemGroup>
+  <ItemGroup>
+    <Image Include="res\RadWndResizer.ico" />
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
   <ImportGroup Label="ExtensionTargets" />

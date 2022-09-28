@@ -3,6 +3,11 @@
 #include <tchar.h>
 #include "HandlePtr.h"
 
+// TODO
+// Needs a tray icon
+// Settings for hotkey
+// Move window immediatley while menu is still showing
+
 #define HK_MENU 1
 
 #define APPNAME TEXT("RadWndResizer")
