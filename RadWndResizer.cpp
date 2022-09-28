@@ -5,6 +5,8 @@
 
 #define HK_MENU 1
 
+#define APPNAME TEXT("RadWndResizer")
+
 inline LONG Width(const RECT& r)
 {
     return r.right - r.left;
@@ -53,7 +55,7 @@ private:
 void RootWindow::GetCreateWindow(CREATESTRUCT& cs)
 {
     Window::GetCreateWindow(cs);
-    cs.lpszName = TEXT("RadWndResizer");
+    cs.lpszName = APPNAME;
     cs.style = WS_OVERLAPPEDWINDOW;
 }
 
@@ -234,13 +236,13 @@ bool Run(_In_ const LPCTSTR lpCmdLine, _In_ const int nShowCmd)
 {
     if (RootWindow::Register() == 0)
     {
-        MessageBox(NULL, TEXT("Error registering window class"), TEXT("RadWndResizer"), MB_ICONERROR | MB_OK);
+        MessageBox(NULL, TEXT("Error registering window class"), APPNAME, MB_ICONERROR | MB_OK);
         return false;
     }
     RootWindow* prw = RootWindow::Create();
     if (prw == nullptr)
     {
-        MessageBox(NULL, TEXT("Error creating root window"), TEXT("RadWndResizer"), MB_ICONERROR | MB_OK);
+        MessageBox(NULL, TEXT("Error creating root window"), APPNAME, MB_ICONERROR | MB_OK);
         return false;
     }
 
