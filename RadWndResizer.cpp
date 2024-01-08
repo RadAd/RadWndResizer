@@ -1,6 +1,7 @@
 #define NOMINMAX
 #include "Window.h"
 #include "Windowxx.h"
+#include "dwmapi.h"
 #include <tchar.h>
 #include "HandlePtr.h"
 #include <algorithm>
@@ -36,6 +37,20 @@ inline RECT Multiply(RECT r, double scale)
 inline SIZE Size(const RECT& r)
 {
     return { Width(r), Height(r) };
+}
+
+inline BOOL UnadjustWindowRectEx(LPRECT prc, DWORD dwStyle, BOOL fMenu, DWORD dwExStyle)
+{
+    RECT rc = {};
+    BOOL fRc = AdjustWindowRectEx(&rc, dwStyle, fMenu, dwExStyle);
+    if (fRc)
+    {
+        prc->left -= rc.left;
+        prc->top -= rc.top;
+        prc->right -= rc.right;
+        prc->bottom -= rc.bottom;
+    }
+    return fRc;
 }
 
 
@@ -140,8 +155,6 @@ void RootWindow::OnHotKey(int idHotKey, UINT fuModifiers, UINT vk)
     {
     case HK_MENU:
     {
-        const LONG fixborder = 8; // Windows 10 invisible border
-
         const SIZE layouts[] = {
             { 2, 1 },
             { 2, 2 },
@@ -153,10 +166,13 @@ void RootWindow::OnHotKey(int idHotKey, UINT fuModifiers, UINT vk)
 
         //HWND hWnd = *this;
         const HWND hWnd = GetForegroundWindow();
-        RECT wr;
-        GetWindowRect(hWnd, &wr);
+        RECT include_shadow, exclude_shadow;
+        GetWindowRect(hWnd, &include_shadow);
+        DwmGetWindowAttribute(hWnd, DWMWA_EXTENDED_FRAME_BOUNDS, &exclude_shadow, sizeof(exclude_shadow));
 
-        const POINT menupt = { wr.right - fixborder, wr.top + GetSystemMetrics(SM_CYBORDER) + GetSystemMetrics(SM_CYCAPTION) };
+        RECT client_rect = include_shadow;
+        UnadjustWindowRectEx(&client_rect, GetWindowStyle(hWnd), FALSE, GetWindowExStyle(hWnd));
+        const POINT menupt = { client_rect.right, client_rect.top };
 
         SetForegroundWindow(*this);
 
@@ -251,8 +267,12 @@ void RootWindow::OnHotKey(int idHotKey, UINT fuModifiers, UINT vk)
                     newr.right = moninfo.rcWork.left + selectedMax.x * Width(moninfo.rcWork) / layout.cx;
                     newr.top = moninfo.rcWork.top + selectedMin.y * Height(moninfo.rcWork) / layout.cy;
                     newr.bottom = moninfo.rcWork.top + selectedMax.y * Height(moninfo.rcWork) / layout.cy;
-                    InflateRect(&newr, fixborder, 0);
-                    newr.bottom += fixborder;
+
+                    newr.left += include_shadow.left - exclude_shadow.left;
+                    newr.right += include_shadow.right - exclude_shadow.right;
+                    newr.top += include_shadow.top - exclude_shadow.top;
+                    newr.bottom += include_shadow.bottom - exclude_shadow.bottom;
+
                     ShowWindow(hWnd, SW_RESTORE);
                     MoveWindow(hWnd, newr.left, newr.top, Width(newr), Height(newr), TRUE);
                 }
