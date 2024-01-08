@@ -1,7 +1,9 @@
+#define NOMINMAX
 #include "Window.h"
 #include "Windowxx.h"
 #include <tchar.h>
 #include "HandlePtr.h"
+#include <algorithm>
 
 // TODO
 // Needs a tray icon
@@ -55,6 +57,7 @@ private:
     void OnInitMenuPopup(HMENU hMenu, UINT item, BOOL fSystemMenu);
 
     static LPCTSTR ClassName() { return TEXT("RADWNDRESIZER"); }
+    POINT m_InitMenuSelection = {};
 };
 
 void RootWindow::GetCreateWindow(CREATESTRUCT& cs)
@@ -66,7 +69,8 @@ void RootWindow::GetCreateWindow(CREATESTRUCT& cs)
 
 BOOL RootWindow::OnCreate(const LPCREATESTRUCT lpCreateStruct)
 {
-    RegisterHotKey(*this, HK_MENU, MOD_CONTROL | MOD_SHIFT, 'M');
+    if (!RegisterHotKey(*this, HK_MENU, MOD_CONTROL | MOD_SHIFT, 'M'))
+        MessageBox(NULL, TEXT("Error registering hotkey"), APPNAME, MB_ICONERROR | MB_OK);
     return TRUE;
 }
 
@@ -75,7 +79,7 @@ void RootWindow::OnDestroy()
     PostQuitMessage(0);
 }
 
-HBITMAPPtr CreateGridBitmap(HDC hDC, SIZE sz, SIZE rowcols, POINT selected)
+HBITMAPPtr CreateGridBitmap(const HDC hDC, const SIZE sz, const SIZE rowcols, const POINT selectedAnchor, const POINT selectedPivot)
 {
     HBITMAPPtr hBitmap(CreateCompatibleBitmap(hDC, sz.cx, sz.cy));
     {
@@ -101,13 +105,33 @@ HBITMAPPtr CreateGridBitmap(HDC hDC, SIZE sz, SIZE rowcols, POINT selected)
             LineTo(hMemDC, sz.cx, y);
         }
 
-        if (selected.x >= 0 && selected.x < rowcols.cx && selected.y >= 0 && selected.y < rowcols.cy)
+        const POINT selectedMin = { std::min(selectedAnchor.x, selectedPivot.x ), std::min(selectedAnchor.y, selectedPivot.y) };
+        const POINT selectedMax = { std::max(selectedAnchor.x, selectedPivot.x), std::max(selectedAnchor.y, selectedPivot.y) };
+
+        POINT selected;
+        for (selected.y = selectedMin.y; selected.y <= selectedMax.y; ++selected.y)
         {
-            SetDCBrushColor(hMemDC, RGB(0, 0, 255));
-            Rectangle(hMemDC, (sz.cx * selected.x) / rowcols.cx, (sz.cy * selected.y) / rowcols.cy, (sz.cx * (selected.x + 1)) / rowcols.cx, (sz.cy * (selected.y + 1)) / rowcols.cy);
+            for (selected.x = selectedMin.x; selected.x <= selectedMax.x; ++selected.x)
+            {
+                if (selected.x >= 0 && selected.x < rowcols.cx && selected.y >= 0 && selected.y < rowcols.cy)
+                {
+                    SetDCBrushColor(hMemDC, RGB(0, 0, 255));
+                    Rectangle(hMemDC, (sz.cx * selected.x) / rowcols.cx, (sz.cy * selected.y) / rowcols.cy, (sz.cx * (selected.x + 1)) / rowcols.cx, (sz.cy * (selected.y + 1)) / rowcols.cy);
+                }
+            }
         }
     }
     return hBitmap;
+}
+
+HBITMAPPtr CreateGridBitmap(const HDC hDC, const SIZE sz, const SIZE rowcols, const POINT selected)
+{
+    return CreateGridBitmap(hDC, sz, rowcols, selected, selected);
+}
+
+HBITMAPPtr CreateGridBitmap(const HDC hDC, const SIZE sz, const SIZE rowcols)
+{
+    return CreateGridBitmap(hDC, sz, rowcols, POINT{ -1, -1 }, POINT{ -1, -1 });
 }
 
 void RootWindow::OnHotKey(int idHotKey, UINT fuModifiers, UINT vk)
@@ -142,17 +166,16 @@ void RootWindow::OnHotKey(int idHotKey, UINT fuModifiers, UINT vk)
         GetMonitorInfo(hMonitor, &moninfo);
         const RECT r = Multiply(moninfo.rcWork, 40.0 / Height(moninfo.rcWork));
 
+        const UINT FIRST_CMD = 2;
         int selected = -1;
 
         {
             HBITMAPPtr hBitmapSet[ARRAYSIZE(layouts)];
             {
                 auto hDC = MakeGetDC(*this);
-                for (int i = 0; i < ARRAYSIZE(layouts); ++i)
-                    hBitmapSet[i] = CreateGridBitmap(hDC.get(), Size(r), layouts[i], POINT{ -1, -1 });
+                for (UINT i = 0; i < ARRAYSIZE(layouts); ++i)
+                    hBitmapSet[i] = CreateGridBitmap(hDC.get(), Size(r), layouts[i]);
             }
-
-            const UINT FIRST_CMD = 2;
 
             HMENUPtr hMenu(CreatePopupMenu());
             UINT i = 0;
@@ -175,13 +198,12 @@ void RootWindow::OnHotKey(int idHotKey, UINT fuModifiers, UINT vk)
             HBITMAPPtr hBitmapSet[100] = {};
             {
                 auto hDC = MakeGetDC(*this);
-                int i = 0;
-                for (int x = 0; x < layout.cx; ++x)
-                    for (int y = 0; y < layout.cy; ++y)
-                        hBitmapSet[i++] = CreateGridBitmap(hDC.get(), Size(r), layout, POINT{ x, y });
+                UINT i = 0;
+                POINT selectedAnchor;
+                for (selectedAnchor.x = 0; selectedAnchor.x < layout.cx; ++selectedAnchor.x)
+                    for (selectedAnchor.y = 0; selectedAnchor.y < layout.cy; ++selectedAnchor.y)
+                        hBitmapSet[i++] = CreateGridBitmap(hDC.get(), Size(r), layout, selectedAnchor);
             }
-
-            const UINT FIRST_CMD = 2;
 
             HMENUPtr hMenu(CreatePopupMenu());
             for (UINT i = 0; i < count; ++i)
@@ -194,15 +216,46 @@ void RootWindow::OnHotKey(int idHotKey, UINT fuModifiers, UINT vk)
 
             if (selected >= 0 && selected < static_cast<int>(count))
             {
-                POINT p = { selected / layout.cy, selected % layout.cy };
-                RECT newr;
-                newr.left = moninfo.rcWork.left + p.x * Width(moninfo.rcWork) / layout.cx;
-                newr.right = newr.left + Width(moninfo.rcWork) / layout.cx;
-                newr.top = moninfo.rcWork.top + p.y * Height(moninfo.rcWork) / layout.cy;
-                newr.bottom = newr.top + Height(moninfo.rcWork) / layout.cy;
-                InflateRect(&newr, fixborder, 0);
-                newr.bottom += fixborder;
-                MoveWindow(hWnd, newr.left, newr.top, Width(newr), Height(newr), TRUE);
+                const POINT selectedAnchor = { selected / layout.cy, selected % layout.cy };
+
+                {
+                    {
+                        auto hDC = MakeGetDC(*this);
+                        UINT i = 0;
+                        POINT selectedPivot;
+                        for (selectedPivot.x = 0; selectedPivot.x < layout.cx; ++selectedPivot.x)
+                            for (selectedPivot.y = 0; selectedPivot.y < layout.cy; ++selectedPivot.y)
+                                hBitmapSet[i++] = CreateGridBitmap(hDC.get(), Size(r), layout, selectedAnchor, selectedPivot);
+                    }
+
+                    HMENUPtr hMenu(CreatePopupMenu());
+                    for (UINT i = 0; i < count; ++i)
+                    {
+                        const bool dobreak = (i % (count / layout.cx)) == 0;
+                        AppendMenu(hMenu, MF_BITMAP | (dobreak ? MF_MENUBREAK : 0), FIRST_CMD + i, reinterpret_cast<LPCTSTR>(hBitmapSet[i].get()));
+                    }
+
+                    m_InitMenuSelection = selectedAnchor;
+                    selected = TrackPopupMenu(hMenu, TPM_RIGHTALIGN | TPM_TOPALIGN | TPM_LEFTBUTTON | TPM_RETURNCMD, menupt.x, menupt.y, 0, *this, nullptr) - FIRST_CMD;
+                }
+
+                if (selected >= 0 && selected < static_cast<int>(count))
+                {
+                    const POINT selectedPivot = { selected / layout.cy, selected % layout.cy };
+
+                    const POINT selectedMin = { std::min(selectedAnchor.x, selectedPivot.x), std::min(selectedAnchor.y, selectedPivot.y) };
+                    const POINT selectedMax = { std::max(selectedAnchor.x, selectedPivot.x) + 1, std::max(selectedAnchor.y, selectedPivot.y) + 1 };
+
+                    RECT newr;
+                    newr.left = moninfo.rcWork.left + selectedMin.x * Width(moninfo.rcWork) / layout.cx;
+                    newr.right = moninfo.rcWork.left + selectedMax.x * Width(moninfo.rcWork) / layout.cx;
+                    newr.top = moninfo.rcWork.top + selectedMin.y * Height(moninfo.rcWork) / layout.cy;
+                    newr.bottom = moninfo.rcWork.top + selectedMax.y * Height(moninfo.rcWork) / layout.cy;
+                    InflateRect(&newr, fixborder, 0);
+                    newr.bottom += fixborder;
+                    ShowWindow(hWnd, SW_RESTORE);
+                    MoveWindow(hWnd, newr.left, newr.top, Width(newr), Height(newr), TRUE);
+                }
             }
         }
 
@@ -222,6 +275,17 @@ void RootWindow::OnInitMenuPopup(HMENU hMenu, UINT item, BOOL fSystemMenu)
         inputs[1].type = INPUT_KEYBOARD;
         inputs[1].ki = { VK_DOWN, 0, KEYEVENTF_KEYUP };
         SendInput(ARRAYSIZE(inputs), inputs, sizeof(INPUT));
+
+        for (LONG i = 0; i < m_InitMenuSelection.y; ++i)
+            SendInput(ARRAYSIZE(inputs), inputs, sizeof(INPUT));
+
+        inputs[0].ki = { VK_RIGHT, 0, 0 };
+        inputs[1].ki = { VK_RIGHT, 0, KEYEVENTF_KEYUP };
+
+        for (LONG i = 0; i < m_InitMenuSelection.x; ++i)
+            SendInput(ARRAYSIZE(inputs), inputs, sizeof(INPUT));
+
+        m_InitMenuSelection = {};
     }
 }
 
